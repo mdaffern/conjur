@@ -21,26 +21,11 @@ module AuthenticatorHelpers
   #
   attr_reader :response_body, :http_status, :rest_client_error, :ldap_auth_key
 
-  def login_with_ldap(service_id:, account:, username:, password:)
-    path = "#{conjur_hostname}/authn-ldap/#{service_id}/#{account}/login"
-    get(path, user: username, password: password)
-    @ldap_auth_key = response_body
-  end
-
-  def authenticate_with_ldap(service_id:, account:, username:, api_key:)
-    # TODO fix this the right way
-    path = "#{conjur_hostname}/authn-ldap/#{service_id}/#{account}/#{username}/authenticate"
-    post(path, api_key)
-  end
-
   def save_variable_value(account, variable_name, value)
     resource_id = [account, "variable", variable_name].join(":")
     conjur_api.resource(resource_id).add_value(value)
   end
 
-  def ldap_ca_certificate_value
-    @ldap_ca_certificate_value ||= File.read('/ldap-certs/root.cert.pem')
-  end
 
   # relevant for original oidc flow
   # def login_with_oidc(service_id:, account:)
@@ -57,12 +42,6 @@ module AuthenticatorHelpers
   #   payload = { id_token_encrypted: "login_oidc_conjur_token", user_name: "alice", expiration_time: "1231" }
   #   post(path, payload)
   # end
-
-  def authenticate_id_token_with_oidc(service_id:, account:)
-    path = "#{conjur_hostname}/authn-oidc/#{service_id}/#{account}/authenticate"
-    payload = { id_token: "{\"preferred_username\": \"alice\",\"email\": \"alice@example.com\"}" }
-    post(path, payload)
-  end
 
   def token_for(username, token_string)
     return nil unless http_status == 200
@@ -91,8 +70,6 @@ module AuthenticatorHelpers
     conjur_api.load_policy('root', policy,
                            method: Conjur::API::POLICY_METHOD_PUT)
   end
-
-  private
 
   def get(path, options = {})
     options = options.merge(
@@ -123,6 +100,8 @@ module AuthenticatorHelpers
     ENV.fetch('CONJUR_APPLIANCE_URL', 'http://conjur')
   end
 
+  private
+
   def admin_password
     ENV['CONJUR_AUTHN_API_KEY'] || 'admin'
   end
@@ -145,43 +124,6 @@ module AuthenticatorHelpers
   def full_username(username, account: Conjur.configuration.account)
     "#{account}:user:#{username}"
   end
-
-  def oidc_client_id
-    @oidc_client_id ||= validated_env_var('CLIENT_ID')
-  end
-
-  def oidc_client_secret
-    @oidc_client_secret ||= validated_env_var('CLIENT_SECRET')
-  end
-
-  def oidc_provider_uri
-    @oidc_provider_uri ||= validated_env_var('PROVIDER_URI')
-  end
-
-  def oidc_redirect_uri
-    @oidc_redirect_uri ||= validated_env_var('REDIRECT_URI')
-  end
-
-  def oidc_auth_code
-    raise 'Authorization code is not initialized' if @oidc_auth_code.blank?
-    @oidc_auth_code
-  end
-
-  def set_oidc_variables
-    path = "cucumber:variable:conjur/authn-oidc/keycloak"
-    Secret.create resource_id: "#{path}/client-id", value: oidc_client_id
-    Secret.create resource_id: "#{path}/client-secret", value: oidc_client_secret
-    Secret.create resource_id: "#{path}/provider-uri", value: oidc_provider_uri
-  end
-
-  def oidc_authorization_code
-    path_script = "/authn-oidc/phantomjs/scripts/fetchAuthCode"
-    authorization_code_file = "cat /authn-oidc/phantomjs/scripts/authorization_code"
-
-    system("sh #{path_script}")
-    @oidc_auth_code = `#{authorization_code_file}`
-  end
-
 end
 
 World(AuthenticatorHelpers)
